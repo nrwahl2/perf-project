@@ -1,9 +1,12 @@
 #include <stdint.h>     // uint8_t
 #include <stdio.h>      // printf
+#include <stdlib.h>     // rand
 
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
 
 #define VERTICES 4
+#define BYTES_IN_KIB 1024
+#define LOOP_ITER 100
 
 /* We start with a stochastic adjacency matrix for a directed weighted graph.
  * The weights roughly indicate the memory affinity between nodes. We treat the
@@ -15,14 +18,8 @@
  * accordance with the specified memory affinity pattern.
  *
  * @TODO
- * - Alter the size of graph nodes by attaching data blobs to them.
- *   * Should the nodes be irregularly sized?
- *
- * - Perform some operation (e.g., addition) on the attached data blobs, to
- *   ensure that the data gets used and the accesses aren't optimized out.
- *   * Using different kinds of operations could also be a way to specify which
- *     accesses need to be faster.
- *
+ * - Consider using different kinds of operations (currently only addition), as
+ *   a way to further specify which memory accesses need to be faster.
  * - Use sparse adjacency matrix or adjacency list.
  * - Run multiple traversal loops in parallel to better exercise memory
  *   placement algorithms.
@@ -72,7 +69,7 @@ int main(void)
      * Instead of trying to hack around that, store each vertex's associated
      * data in this 1-D array.
      */
-    void *objects[VERTICES] = { NULL, };
+    uint8_t *objects[VERTICES] = { NULL, };
 
     // Size of each vertex's attached data, in KiB
     const size_t object_sizes[VERTICES] = { 8, 1, 64, 32 };
@@ -87,6 +84,8 @@ int main(void)
     igraph_vector_t weights;
     igraph_vector_int_t vertices;
     igraph_vector_int_t edges;
+
+    // Always start at vertex 0 for simplicity
     igraph_integer_t start = 0;
 
     igraph_setup();
@@ -98,14 +97,17 @@ int main(void)
     igraph_weighted_adjacency(&graph, &mat, IGRAPH_ADJ_DIRECTED, &weights,
                               IGRAPH_LOOPS_ONCE);
 
+    // Initialize the data associated with each vertex
     for (int i = 0; i < VERTICES; i++) {
-        // Ignore memory allocation errors for now
-        objects[i] = calloc(1024 * object_sizes[i], sizeof(uint8_t));
-    }
+        const size_t size = BYTES_IN_KIB * object_sizes[i];
 
-    /* TODO Access each vertex's data when we access the vertex. Possibly do
-     * some operation to ensure that the access doesn't get optimized out.
-     */
+        // Ignore memory allocation errors for now
+        objects[i] = calloc(size, sizeof(uint8_t));
+
+        for (size_t j = 0; j < size; j++) {
+            objects[i][j] = rand() / UINT8_MAX;
+        }
+    }
 
     /* When igraph_weighted_adjacency() returns, 'weights' will typically have
      * more capacity allocated than what it uses. We may optionally free any
@@ -118,13 +120,39 @@ int main(void)
     igraph_vector_resize_min(&weights);
 
     // Walk one step at a time, to try to prevent the prefetcher from "helping"
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < LOOP_ITER; i++) {
+        igraph_integer_t end = 0;
+
+        size_t start_size = 0;
+        size_t end_size = 0;
+        size_t max_size = 0;
+
         igraph_random_walk(&graph, &weights, &vertices, &edges, start,
                            IGRAPH_OUT, 1, IGRAPH_RANDOM_WALK_STUCK_ERROR);
+        end = VECTOR(vertices)[1];
 
+        start_size = BYTES_IN_KIB * object_sizes[start];
+        end_size = BYTES_IN_KIB * object_sizes[end];
+        max_size = (start_size >= end_size)? start_size : end_size;
+
+        for (size_t j = 0; j < max_size; j++) {
+            /* Add byte of end vertex's object to that of start vertex's object,
+             * subject to modulus.
+             *
+             * The goal of accessing each byte of each object is to try to
+             * ensure that we have to load the entire object into memory at some
+             * point, and none of it gets optimized out.
+             *
+             * Alternatively, we could pick a random element from the start
+             * array and a random element from the end array, for the addition.
+             * However, this might make the array sizes less relevant and thus
+             * make our placements in the memory hierarchy less important.
+             */
+            objects[start][j % start_size] += objects[end][j % end_size];
+        }
+
+        printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);
         start = VECTOR(vertices)[1];
-        printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", VECTOR(vertices)[0],
-               VECTOR(vertices)[1]);
     }
 
     igraph_vector_int_destroy(&vertices);
