@@ -1,6 +1,9 @@
+#include <stdint.h>     // uint8_t
 #include <stdio.h>      // printf
 
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
+
+#define VERTICES 4
 
 /* We start with a stochastic adjacency matrix for a directed weighted graph.
  * The weights roughly indicate the memory affinity between nodes. We treat the
@@ -32,18 +35,47 @@
 int main(void)
 {
     igraph_t graph;
-    const igraph_real_t data[4][4] = { { 0.0, 1.0, 0.2, 0.5 },
-                                       { 0.2, 0.0, 0.3, 0.0 },
-                                       { 0.8, 0.0, 0.3, 0.0 },
-                                       { 0.0, 0.0, 0.2, 0.5 } };
+
+    /* Weighted adjacency matrix: a transition matrix for a Markov chain.
+     *
+     * Technically this is the transpose of a transition matrix, since igraph
+     * uses column-major storage.
+     *
+     * data[i][j] = probability of transition to vertex j given start at
+     *              vertex i
+     *
+     * Each column sum will be normalized to 1, but for clarity, we define the
+     * matrix with unit column sums.
+     */
+    const igraph_real_t data[VERTICES][VERTICES] = {
+        { 0.0, 1.0, 0.2, 0.5 },
+        { 0.2, 0.0, 0.3, 0.0 },
+        { 0.8, 0.0, 0.3, 0.0 },
+        { 0.0, 0.0, 0.2, 0.5 },
+    };
 
     /*
-    // Get stuck in either {0, 2} or {1, 3}
+    // Example: Get stuck in either {0, 2} or {1, 3}
     const igraph_real_t data[4][4] = { { 0.5, 0.0, 0.5, 0.0 },
                                        { 0.0, 0.5, 0.0, 0.5 },
                                        { 0.5, 0.0, 0.5, 0.0 },
                                        { 0.0, 0.5, 0.0, 0.5 } };
                                        */
+
+    /* Data objects attached to each vertex.
+     *
+     * igraph supports arbitrary vertex attributes via IGRAPH_ATTRIBUTE_OBJECT,
+     * but its C library provides no built-in way to attach them. It only
+     * provides methods for setting and getting numeric, boolean, and string
+     * attributes.
+     *
+     * Instead of trying to hack around that, store each vertex's associated
+     * data in this 1-D array.
+     */
+    void *objects[VERTICES] = { NULL, };
+
+    // Size of each vertex's attached data, in KiB
+    const size_t object_sizes[VERTICES] = { 8, 1, 64, 32 };
 
     /* C arrays use row-major storage, while igraph's matrix uses column-major.
      * The matrix 'mat' will be the transpose of 'data'.
@@ -65,6 +97,15 @@ int main(void)
 
     igraph_weighted_adjacency(&graph, &mat, IGRAPH_ADJ_DIRECTED, &weights,
                               IGRAPH_LOOPS_ONCE);
+
+    for (int i = 0; i < VERTICES; i++) {
+        // Ignore memory allocation errors for now
+        objects[i] = calloc(1024 * object_sizes[i], sizeof(uint8_t));
+    }
+
+    /* TODO Access each vertex's data when we access the vertex. Possibly do
+     * some operation to ensure that the access doesn't get optimized out.
+     */
 
     /* When igraph_weighted_adjacency() returns, 'weights' will typically have
      * more capacity allocated than what it uses. We may optionally free any
