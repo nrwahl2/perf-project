@@ -1,12 +1,28 @@
 #include <stdint.h>     // uint8_t
 #include <stdio.h>      // printf
-#include <stdlib.h>     // rand
+#include <stdlib.h>     // calloc, rand
 
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
 
 #define VERTICES 4
 #define BYTES_IN_KIB 1024
 #define LOOP_ITER 100
+
+void
+init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
+{
+    // Initialize the data objects associated with each vertex
+    for (int i = 0; i < VERTICES; i++) {
+        const size_t size = BYTES_IN_KIB * object_sizes[i];
+
+        // Ignore memory allocation errors for now
+        objects[i] = calloc(size, sizeof(uint8_t));
+
+        for (size_t j = 0; j < size; j++) {
+            objects[i][j] = rand() / UINT8_MAX;
+        }
+    }
+}
 
 /* We start with a stochastic adjacency matrix for a directed weighted graph.
  * The weights roughly indicate the memory affinity between nodes. We treat the
@@ -97,18 +113,7 @@ main(void)
 
     igraph_weighted_adjacency(&graph, &tmat_transpose, IGRAPH_ADJ_DIRECTED,
                               &weights, IGRAPH_LOOPS_ONCE);
-
-    // Initialize the data associated with each vertex
-    for (int i = 0; i < VERTICES; i++) {
-        const size_t size = BYTES_IN_KIB * object_sizes[i];
-
-        // Ignore memory allocation errors for now
-        objects[i] = calloc(size, sizeof(uint8_t));
-
-        for (size_t j = 0; j < size; j++) {
-            objects[i][j] = rand() / UINT8_MAX;
-        }
-    }
+    init_vertex_objects(objects, object_sizes);
 
     /* When igraph_weighted_adjacency() returns, 'weights' will typically have
      * more capacity allocated than what it uses. We may optionally free any
@@ -154,6 +159,10 @@ main(void)
 
         printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);
         start = VECTOR(vertices)[1];
+    }
+
+    for (int i = 0; i < VERTICES; i++) {
+        free(objects[i]);
     }
 
     igraph_vector_int_destroy(&vertices);
