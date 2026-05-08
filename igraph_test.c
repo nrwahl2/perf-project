@@ -8,7 +8,7 @@
 #define BYTES_IN_KIB 1024
 #define LOOP_ITER 100
 
-void
+static void
 init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
 {
     // Initialize the data objects associated with each vertex
@@ -22,6 +22,37 @@ init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
             objects[i][j] = rand() / UINT8_MAX;
         }
     }
+}
+
+static void
+process_step(igraph_integer_t start, igraph_integer_t end, uint8_t **objects,
+             const size_t *object_sizes)
+{
+    size_t start_size = 0;
+    size_t end_size = 0;
+    size_t max_size = 0;
+
+    start_size = BYTES_IN_KIB * object_sizes[start];
+    end_size = BYTES_IN_KIB * object_sizes[end];
+    max_size = (start_size >= end_size)? start_size : end_size;
+
+    for (size_t j = 0; j < max_size; j++) {
+        /* Add byte of end vertex's object to that of start vertex's object,
+         * subject to modulus.
+         *
+         * The goal of accessing each byte of each object is to try to
+         * ensure that we have to load the entire object into memory at some
+         * point, and none of it gets optimized out.
+         *
+         * Alternatively, we could pick a random element from the start
+         * array and a random element from the end array, for the addition.
+         * However, this might make the array sizes less relevant and thus
+         * make our placements in the memory hierarchy less important.
+         */
+        objects[start][j % start_size] += objects[end][j % end_size];
+    }
+
+    printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);
 }
 
 /* We start with a stochastic adjacency matrix for a directed weighted graph.
@@ -129,36 +160,12 @@ main(void)
     for (int i = 0; i < LOOP_ITER; i++) {
         igraph_integer_t end = 0;
 
-        size_t start_size = 0;
-        size_t end_size = 0;
-        size_t max_size = 0;
-
         igraph_random_walk(&graph, &weights, &vertices, &edges, start,
                            IGRAPH_OUT, 1, IGRAPH_RANDOM_WALK_STUCK_ERROR);
         end = VECTOR(vertices)[1];
 
-        start_size = BYTES_IN_KIB * object_sizes[start];
-        end_size = BYTES_IN_KIB * object_sizes[end];
-        max_size = (start_size >= end_size)? start_size : end_size;
-
-        for (size_t j = 0; j < max_size; j++) {
-            /* Add byte of end vertex's object to that of start vertex's object,
-             * subject to modulus.
-             *
-             * The goal of accessing each byte of each object is to try to
-             * ensure that we have to load the entire object into memory at some
-             * point, and none of it gets optimized out.
-             *
-             * Alternatively, we could pick a random element from the start
-             * array and a random element from the end array, for the addition.
-             * However, this might make the array sizes less relevant and thus
-             * make our placements in the memory hierarchy less important.
-             */
-            objects[start][j % start_size] += objects[end][j % end_size];
-        }
-
-        printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);
-        start = VECTOR(vertices)[1];
+        process_step(start, end, objects, object_sizes);
+        start = end;
     }
 
     for (int i = 0; i < VERTICES; i++) {
