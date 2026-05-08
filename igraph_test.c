@@ -29,7 +29,8 @@
  * - Consider using undirected graphs instead, depending on how we want to
  *   define affinity.
  */
-int main(void)
+int
+main(void)
 {
     igraph_t graph;
 
@@ -38,13 +39,13 @@ int main(void)
      * Technically this is the transpose of a transition matrix, since igraph
      * uses column-major storage.
      *
-     * data[i][j] = probability of transition to vertex j given start at
+     * tmat[i][j] = probability of transition to vertex j given start at
      *              vertex i
      *
      * Each column sum will be normalized to 1, but for clarity, we define the
      * matrix with unit column sums.
      */
-    const igraph_real_t data[VERTICES][VERTICES] = {
+    const igraph_real_t tmat[VERTICES][VERTICES] = {
         { 0.0, 1.0, 0.2, 0.5 },
         { 0.2, 0.0, 0.3, 0.0 },
         { 0.8, 0.0, 0.3, 0.0 },
@@ -53,11 +54,13 @@ int main(void)
 
     /*
     // Example: Get stuck in either {0, 2} or {1, 3}
-    const igraph_real_t data[4][4] = { { 0.5, 0.0, 0.5, 0.0 },
-                                       { 0.0, 0.5, 0.0, 0.5 },
-                                       { 0.5, 0.0, 0.5, 0.0 },
-                                       { 0.0, 0.5, 0.0, 0.5 } };
-                                       */
+    const igraph_real_t tmat[VERTICES][VERTICES] = {
+        { 0.5, 0.0, 0.5, 0.0 },
+        { 0.0, 0.5, 0.0, 0.5 },
+        { 0.5, 0.0, 0.5, 0.0 },
+        { 0.0, 0.5, 0.0, 0.5 },
+    };
+    */
 
     /* Data objects attached to each vertex.
      *
@@ -74,12 +77,10 @@ int main(void)
     // Size of each vertex's attached data, in KiB
     const size_t object_sizes[VERTICES] = { 8, 1, 64, 32 };
 
-    /* C arrays use row-major storage, while igraph's matrix uses column-major.
-     * The matrix 'mat' will be the transpose of 'data'.
-     */
-    const igraph_matrix_t mat =
-        igraph_matrix_view(*data, (sizeof(data[0]) / sizeof(data[0][0])),
-                           (sizeof(data) / sizeof(data[0])));
+    // C arrays use row-major storage, while igraph's matrix uses column-major
+    const igraph_matrix_t tmat_transpose =
+        igraph_matrix_view(*tmat, (sizeof(tmat[0]) / sizeof(tmat[0][0])),
+                           (sizeof(tmat) / sizeof(tmat[0])));
 
     igraph_vector_t weights;
     igraph_vector_int_t vertices;
@@ -94,8 +95,8 @@ int main(void)
     igraph_vector_int_init(&vertices, 0);
     igraph_vector_int_init(&edges, 0);
 
-    igraph_weighted_adjacency(&graph, &mat, IGRAPH_ADJ_DIRECTED, &weights,
-                              IGRAPH_LOOPS_ONCE);
+    igraph_weighted_adjacency(&graph, &tmat_transpose, IGRAPH_ADJ_DIRECTED,
+                              &weights, IGRAPH_LOOPS_ONCE);
 
     // Initialize the data associated with each vertex
     for (int i = 0; i < VERTICES; i++) {
