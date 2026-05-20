@@ -4,9 +4,18 @@
 
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
 
+// Enables debug logging to stdout if defined
+//#define DEBUG
+
 #define VERTICES 4
 #define BYTES_PER_CHUNK (1 << 20)
 #define LOOP_ITER 100
+
+#ifdef DEBUG
+#define debug_printf(...) printf(__VA_ARGS__)
+#else
+#define debug_printf(...)
+#endif
 
 static void
 init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
@@ -52,7 +61,7 @@ process_step(igraph_integer_t start, igraph_integer_t end, uint8_t **objects,
         objects[start][j % start_size] += objects[end][j % end_size];
     }
 
-    printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);
+    debug_printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);
 }
 
 /* We start with a stochastic adjacency matrix for a directed weighted graph.
