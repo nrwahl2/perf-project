@@ -5,7 +5,7 @@
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
 
 #define VERTICES 4
-#define BYTES_IN_KIB 1024
+#define BYTES_PER_CHUNK (1 << 20)
 #define LOOP_ITER 100
 
 static void
@@ -13,7 +13,7 @@ init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
 {
     // Initialize the data objects associated with each vertex
     for (int i = 0; i < VERTICES; i++) {
-        const size_t size = BYTES_IN_KIB * object_sizes[i];
+        const size_t size = BYTES_PER_CHUNK * object_sizes[i];
 
         // Ignore memory allocation errors for now
         objects[i] = calloc(size, sizeof(uint8_t));
@@ -32,8 +32,8 @@ process_step(igraph_integer_t start, igraph_integer_t end, uint8_t **objects,
     size_t end_size = 0;
     size_t max_size = 0;
 
-    start_size = BYTES_IN_KIB * object_sizes[start];
-    end_size = BYTES_IN_KIB * object_sizes[end];
+    start_size = BYTES_PER_CHUNK * object_sizes[start];
+    end_size = BYTES_PER_CHUNK * object_sizes[end];
     max_size = (start_size >= end_size)? start_size : end_size;
 
     for (size_t j = 0; j < max_size; j++) {
@@ -121,7 +121,7 @@ main(void)
      */
     uint8_t *objects[VERTICES] = { NULL, };
 
-    // Size of each vertex's attached data, in KiB
+    // Size in chunks of each vertex's attached data (see BYTES_PER_CHUNK)
     const size_t object_sizes[VERTICES] = { 8, 1, 64, 32 };
 
     // C arrays use row-major storage, while igraph's matrix uses column-major
