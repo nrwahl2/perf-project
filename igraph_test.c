@@ -1,17 +1,21 @@
+#include <errno.h>      // errno
 #include <stdint.h>     // uint8_t
 #include <stdio.h>      // printf
 #include <stdlib.h>     // calloc, rand
+#include <string.h>     // strerror
 
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
 
 // Enables debug logging to stdout if defined
-//#define DEBUG
+#define DEBUG
 
-#define VERTICES 4
+#define INPUT_FILENAME "graphs/connected.graphml"
+
 #define BYTES_PER_CHUNK (1 << 20)
-#define LOOP_ITER 100
+#define LOOP_ITER 10
 
 #define ATTR_SIZE "size"
+#define ATTR_WEIGHT "weight"
 
 #ifdef DEBUG
 #define debug_printf(...) printf(__VA_ARGS__)
@@ -19,43 +23,44 @@
 #define debug_printf(...)
 #endif
 
-static void
-init_vertex_size_attrs(igraph_t *graph, const size_t *object_sizes)
-{
-    for (int i = 0; i < VERTICES; i++) {
-        SETVAN(graph, ATTR_SIZE, i, object_sizes[i]);
-    }
-}
-
 static inline size_t
 vertex_size(const igraph_t *graph, igraph_int_t vid)
 {
     return BYTES_PER_CHUNK * (size_t) VAN(graph, ATTR_SIZE, vid);
 }
 
-static void
+static int
 init_vertex_objects(const igraph_t *graph, uint8_t **objects)
 {
+    const igraph_int_t vcount = igraph_vcount(graph);
+
     // Initialize the data objects associated with each vertex
-    for (int i = 0; i < VERTICES; i++) {
+    for (igraph_int_t i = 0; i < vcount; i++) {
         const size_t size = vertex_size(graph, i);
 
-        // Ignore memory allocation errors for now
         objects[i] = calloc(size, sizeof(uint8_t));
+        if (objects[i] == NULL) {
+            fprintf(stderr,
+                    "Failed to allocate %zu bytes for vertex %" IGRAPH_PRId
+                    ": %s\n", size, i, strerror(errno));
+            return -1;
+        }
 
         for (size_t j = 0; j < size; j++) {
             objects[i][j] = rand() / UINT8_MAX;
         }
     }
+
+    return 0;
 }
 
 static void
 process_step(const igraph_t *graph, igraph_int_t start, igraph_int_t end,
              uint8_t **objects)
 {
-    size_t start_size = vertex_size(graph, start);
-    size_t end_size = vertex_size(graph, end);
-    size_t max_size = (start_size >= end_size)? start_size : end_size;
+    const size_t start_size = vertex_size(graph, start);
+    const size_t end_size = vertex_size(graph, end);
+    const size_t max_size = (start_size >= end_size)? start_size : end_size;
 
     for (size_t j = 0; j < max_size; j++) {
         /* Add byte of end vertex's object to that of start vertex's object,
@@ -97,35 +102,11 @@ process_step(const igraph_t *graph, igraph_int_t start, igraph_int_t end,
 int
 main(void)
 {
-    igraph_t graph;
+    int rc = 0;
+    igraph_error_t igraph_errno = IGRAPH_SUCCESS;
 
-    /* Weighted adjacency matrix: a transition matrix for a Markov chain.
-     *
-     * Technically this is the transpose of a transition matrix, since igraph
-     * uses column-major storage.
-     *
-     * tmat[i][j] = probability of transition to vertex j given start at
-     *              vertex i
-     *
-     * Each column sum will be normalized to 1, but for clarity, we define the
-     * matrix with unit column sums.
-     */
-    const igraph_real_t tmat[VERTICES][VERTICES] = {
-        { 0.0, 1.0, 0.2, 0.5 },
-        { 0.2, 0.0, 0.3, 0.0 },
-        { 0.8, 0.0, 0.3, 0.0 },
-        { 0.0, 0.0, 0.2, 0.5 },
-    };
-
-    /*
-    // Example: Get stuck in either {0, 2} or {1, 3}
-    const igraph_real_t tmat[VERTICES][VERTICES] = {
-        { 0.5, 0.0, 0.5, 0.0 },
-        { 0.0, 0.5, 0.0, 0.5 },
-        { 0.5, 0.0, 0.5, 0.0 },
-        { 0.0, 0.5, 0.0, 0.5 },
-    };
-    */
+    igraph_t graph = { 0, };
+    FILE *input_file = NULL;
 
     /* Data objects attached to each vertex.
      *
@@ -139,19 +120,13 @@ main(void)
      * gives us explicit control over how to allocate and place each object in a
      * heterogeneous memory hierarchy.
      */
-    uint8_t *objects[VERTICES] = { NULL, };
+    uint8_t **objects = NULL;
 
-    // Size in chunks of each vertex's attached data (see BYTES_PER_CHUNK)
-    const size_t object_sizes[VERTICES] = { 8, 1, 64, 32 };
+    igraph_vector_t weights = { 0, };
+    igraph_vector_int_t vertices = { 0, };
+    igraph_vector_int_t edges = { 0, };
 
-    // C arrays use row-major storage, while igraph's matrix uses column-major
-    const igraph_matrix_t tmat_transpose =
-        igraph_matrix_view(*tmat, (sizeof(tmat[0]) / sizeof(tmat[0][0])),
-                           (sizeof(tmat) / sizeof(tmat[0])));
-
-    igraph_vector_t weights;
-    igraph_vector_int_t vertices;
-    igraph_vector_int_t edges;
+    igraph_int_t vcount = 0;
 
     // Always start at vertex 0 for simplicity
     igraph_int_t start = 0;
@@ -166,10 +141,45 @@ main(void)
     igraph_vector_int_init(&vertices, 0);
     igraph_vector_int_init(&edges, 0);
 
-    igraph_weighted_adjacency(&graph, &tmat_transpose, IGRAPH_ADJ_DIRECTED,
-                              &weights, IGRAPH_LOOPS_ONCE);
-    init_vertex_size_attrs(&graph, object_sizes);
-    init_vertex_objects(&graph, objects);
+    input_file = fopen(INPUT_FILENAME, "r");
+    if (input_file == NULL) {
+        fprintf(stderr, "Failed to open input file " INPUT_FILENAME ": %s\n",
+                strerror(errno));
+        rc = 1;
+        goto done;
+    }
+
+    igraph_errno = igraph_read_graph_graphml(&graph, input_file, 0);
+    if (igraph_errno != IGRAPH_SUCCESS) {
+        fprintf(stderr, "Failed to read " INPUT_FILENAME " as GraphML: %s\n",
+                igraph_strerror(igraph_errno));
+        rc = 1;
+        goto done;
+    }
+
+    igraph_errno = EANV(&graph, ATTR_WEIGHT, &weights);
+    if (igraph_errno != IGRAPH_SUCCESS) {
+        fprintf(stderr, "Failed to get edge weights from graph: %s\n",
+                igraph_strerror(igraph_errno));
+        rc = 1;
+        goto done;
+    }
+
+    vcount = igraph_vcount(&graph);
+
+    objects = calloc(vcount, sizeof(uint8_t *));
+    if (objects == NULL) {
+        fprintf(stderr, "Failed to allocate array for vertex objects: %s\n",
+                strerror(errno));
+        rc = 1;
+        goto done;
+    }
+
+    if (init_vertex_objects(&graph, objects) != 0) {
+        // Error already logged
+        rc = 1;
+        goto done;
+    }
 
     // Walk one step at a time, to try to prevent the prefetcher from "helping"
     for (int i = 0; i < LOOP_ITER; i++) {
@@ -183,14 +193,23 @@ main(void)
         start = end;
     }
 
-    for (int i = 0; i < VERTICES; i++) {
-        free(objects[i]);
+done:
+    if (input_file != NULL) {
+        fclose(input_file);
     }
 
+    if (objects != NULL) {
+        for (int i = 0; i < vcount; i++) {
+            free(objects[i]);
+        }
+
+        free(objects);
+    }
+
+    igraph_vector_destroy(&weights);
     igraph_vector_int_destroy(&vertices);
     igraph_vector_int_destroy(&edges);
-    igraph_vector_destroy(&weights);
     igraph_destroy(&graph);
 
-    return 0;
+    return rc;
 }
