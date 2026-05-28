@@ -152,16 +152,6 @@ main(void)
                               &weights, IGRAPH_LOOPS_ONCE);
     init_vertex_objects(objects, object_sizes);
 
-    /* When igraph_weighted_adjacency() returns, 'weights' will typically have
-     * more capacity allocated than what it uses. We may optionally free any
-     * unused capacity to save memory, although in most applications this
-     * is not necessary.
-     *
-     * This is from the igraph example code, but it may not be desirable for our
-     * use case.
-     */
-    igraph_vector_resize_min(&weights);
-
     // Walk one step at a time, to try to prevent the prefetcher from "helping"
     for (int i = 0; i < LOOP_ITER; i++) {
         igraph_integer_t end = 0;
