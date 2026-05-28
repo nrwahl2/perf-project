@@ -159,6 +159,9 @@ main(void)
     igraph_setup();
     igraph_set_attribute_table(&igraph_cattribute_table);
 
+    // Comment the below line out for random results among runs
+    igraph_rng_seed(igraph_rng_default(), 0);
+
     igraph_vector_init(&weights, 0);
     igraph_vector_int_init(&vertices, 0);
     igraph_vector_int_init(&edges, 0);
