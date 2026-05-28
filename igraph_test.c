@@ -11,6 +11,8 @@
 #define BYTES_PER_CHUNK (1 << 20)
 #define LOOP_ITER 100
 
+#define ATTR_SIZE "size"
+
 #ifdef DEBUG
 #define debug_printf(...) printf(__VA_ARGS__)
 #else
@@ -18,11 +20,25 @@
 #endif
 
 static void
-init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
+init_vertex_size_attrs(igraph_t *graph, const size_t *object_sizes)
+{
+    for (int i = 0; i < VERTICES; i++) {
+        SETVAN(graph, ATTR_SIZE, i, object_sizes[i]);
+    }
+}
+
+static inline size_t
+vertex_size(const igraph_t *graph, igraph_int_t vid)
+{
+    return BYTES_PER_CHUNK * (size_t) VAN(graph, ATTR_SIZE, vid);
+}
+
+static void
+init_vertex_objects(const igraph_t *graph, uint8_t **objects)
 {
     // Initialize the data objects associated with each vertex
     for (int i = 0; i < VERTICES; i++) {
-        const size_t size = BYTES_PER_CHUNK * object_sizes[i];
+        const size_t size = vertex_size(graph, i);
 
         // Ignore memory allocation errors for now
         objects[i] = calloc(size, sizeof(uint8_t));
@@ -34,16 +50,12 @@ init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
 }
 
 static void
-process_step(igraph_int_t start, igraph_int_t end, uint8_t **objects,
-             const size_t *object_sizes)
+process_step(const igraph_t *graph, igraph_int_t start, igraph_int_t end,
+             uint8_t **objects)
 {
-    size_t start_size = 0;
-    size_t end_size = 0;
-    size_t max_size = 0;
-
-    start_size = BYTES_PER_CHUNK * object_sizes[start];
-    end_size = BYTES_PER_CHUNK * object_sizes[end];
-    max_size = (start_size >= end_size)? start_size : end_size;
+    size_t start_size = vertex_size(graph, start);
+    size_t end_size = vertex_size(graph, end);
+    size_t max_size = (start_size >= end_size)? start_size : end_size;
 
     for (size_t j = 0; j < max_size; j++) {
         /* Add byte of end vertex's object to that of start vertex's object,
@@ -120,10 +132,12 @@ main(void)
      * igraph supports arbitrary vertex attributes via IGRAPH_ATTRIBUTE_OBJECT,
      * but its C library provides no built-in way to attach them. It only
      * provides methods for setting and getting numeric, boolean, and string
-     * attributes.
+     * attributes. Manipulating attributes of type IGRAPH_ATTRIBUTE_OBJECT
+     * requires a custom attribute table, which would be a pain to create.
      *
-     * Instead of trying to hack around that, store each vertex's associated
-     * data in this 1-D array.
+     * Instead, store each vertex's associated data in this 1-D array. This also
+     * gives us explicit control over how to allocate and place each object in a
+     * heterogeneous memory hierarchy.
      */
     uint8_t *objects[VERTICES] = { NULL, };
 
@@ -143,6 +157,7 @@ main(void)
     igraph_int_t start = 0;
 
     igraph_setup();
+    igraph_set_attribute_table(&igraph_cattribute_table);
 
     igraph_vector_init(&weights, 0);
     igraph_vector_int_init(&vertices, 0);
@@ -150,7 +165,8 @@ main(void)
 
     igraph_weighted_adjacency(&graph, &tmat_transpose, IGRAPH_ADJ_DIRECTED,
                               &weights, IGRAPH_LOOPS_ONCE);
-    init_vertex_objects(objects, object_sizes);
+    init_vertex_size_attrs(&graph, object_sizes);
+    init_vertex_objects(&graph, objects);
 
     // Walk one step at a time, to try to prevent the prefetcher from "helping"
     for (int i = 0; i < LOOP_ITER; i++) {
@@ -160,7 +176,7 @@ main(void)
                            IGRAPH_OUT, 1, IGRAPH_RANDOM_WALK_STUCK_ERROR);
         end = VECTOR(vertices)[1];
 
-        process_step(start, end, objects, object_sizes);
+        process_step(&graph, start, end, objects);
         start = end;
     }
 
