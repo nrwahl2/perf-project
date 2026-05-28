@@ -76,14 +76,11 @@ process_step(igraph_integer_t start, igraph_integer_t end, uint8_t **objects,
  * @TODO
  * - Consider using different kinds of operations (currently only addition), as
  *   a way to further specify which memory accesses need to be faster.
- * - Use sparse adjacency matrix or adjacency list.
  * - Run multiple traversal loops in parallel to better exercise memory
  *   placement algorithms.
  * - Allow specifying number of loops and other such parameters for the driver
  *   code.
  * - Create matrices that correspond to interesting access/affinity patterns.
- * - Consider using undirected graphs instead, depending on how we want to
- *   define affinity.
  */
 int
 main(void)
