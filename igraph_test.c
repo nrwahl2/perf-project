@@ -34,7 +34,7 @@ init_vertex_objects(uint8_t **objects, const size_t *object_sizes)
 }
 
 static void
-process_step(igraph_integer_t start, igraph_integer_t end, uint8_t **objects,
+process_step(igraph_int_t start, igraph_int_t end, uint8_t **objects,
              const size_t *object_sizes)
 {
     size_t start_size = 0;
@@ -140,7 +140,7 @@ main(void)
     igraph_vector_int_t edges;
 
     // Always start at vertex 0 for simplicity
-    igraph_integer_t start = 0;
+    igraph_int_t start = 0;
 
     igraph_setup();
 
@@ -154,7 +154,7 @@ main(void)
 
     // Walk one step at a time, to try to prevent the prefetcher from "helping"
     for (int i = 0; i < LOOP_ITER; i++) {
-        igraph_integer_t end = 0;
+        igraph_int_t end = 0;
 
         igraph_random_walk(&graph, &weights, &vertices, &edges, start,
                            IGRAPH_OUT, 1, IGRAPH_RANDOM_WALK_STUCK_ERROR);
