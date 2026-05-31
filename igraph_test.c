@@ -1,5 +1,5 @@
 #include <errno.h>      // errno
-#include <stdint.h>     // uint8_t
+#include <stdint.h>     // SIZE_MAX, uint8_t
 #include <stdio.h>      // printf
 #include <stdlib.h>     // calloc
 #include <string.h>     // strerror
@@ -14,6 +14,7 @@
 #define BYTES_PER_CHUNK (1 << 20)
 #define LOOP_ITER 10
 
+#define ATTR_PATTERN "pattern"
 #define ATTR_SIZE "size"
 #define ATTR_WEIGHT "weight"
 
@@ -66,6 +67,45 @@ init_vertex_objects(const igraph_t *graph, uint8_t **objects)
     return 0;
 }
 
+static bool
+vertex_access_random(const igraph_t *graph, igraph_int_t vid)
+{
+    const char *pattern = VAS(graph, ATTR_PATTERN, vid);
+
+    /* We don't currently validate that the ATTR_PATTERN attribute is set to
+     * either "random" or "strided". If it's not "random", we use a strided
+     * access pattern.
+     */
+    return (pattern != NULL) && (strcmp(pattern, "random") == 0);
+}
+
+static size_t
+get_random_index(size_t max_index)
+{
+    igraph_rng_t *rng = igraph_rng_default();
+
+#if (SIZE_MAX > IGRAPH_INTEGER_MAX)
+    if (max_index > IGRAPH_INTEGER_MAX) {
+        /* Shift unsigned to signed range by subtracting IGRAPH_INTEGER_MAX from
+         * both endpoints.
+         *
+         * This assumes that SIZE_MAX <= IGRAPH_UINT_MAX, which should always be
+         * true in practice.
+         */
+        const igraph_uint_t lower_u = 0;
+        const igraph_uint_t upper_u = max_index;
+        const igraph_int_t lower_i = lower_u - IGRAPH_INTEGER_MAX;
+        const igraph_int_t upper_i = upper_u - IGRAPH_INTEGER_MAX;
+
+        // Shift the random integer back to the desired unsigned range
+        return ((size_t) igraph_rng_get_integer(rng, lower_i, upper_i))
+               + IGRAPH_INTEGER_MAX;
+    }
+#endif  // (SIZE_MAX >= IGRAPH_INTEGER_MAX)
+
+    return igraph_rng_get_integer(rng, 0, max_index);
+}
+
 static void
 process_step(const igraph_t *graph, igraph_int_t start, igraph_int_t end,
              uint8_t **objects)
@@ -74,20 +114,32 @@ process_step(const igraph_t *graph, igraph_int_t start, igraph_int_t end,
     const size_t end_size = vertex_size(graph, end);
     const size_t max_size = (start_size >= end_size)? start_size : end_size;
 
+    const bool start_random = vertex_access_random(graph, start);
+    const bool end_random = vertex_access_random(graph, end);
+
+    uint8_t *start_obj = objects[start];
+    uint8_t *end_obj = objects[end];
+
     for (size_t j = 0; j < max_size; j++) {
-        /* Add byte of end vertex's object to that of start vertex's object,
-         * subject to modulus.
+        size_t start_idx = j % start_size;
+        size_t end_idx = j % end_size;
+
+        if (start_random) {
+            start_idx = get_random_index(start_size);
+        }
+
+        if (end_random) {
+            end_idx = get_random_index(end_size);
+        }
+
+        /* Add an element of the end vertex's object to an element of the start
+         * vertex's object, modulo the start object's size.
          *
-         * The goal of accessing each byte of each object is to try to
-         * ensure that we have to load the entire object into memory at some
-         * point, and none of it gets optimized out.
-         *
-         * Alternatively, we could pick a random element from the start
-         * array and a random element from the end array, for the addition.
-         * However, this might make the array sizes less relevant and thus
-         * make our placements in the memory hierarchy less important.
+         * The goal of accessing each element of each object is to try to ensure
+         * that we have to load the entire object into memory at some point, so
+         * that none of it gets optimized out.
          */
-        objects[start][j % start_size] += objects[end][j % end_size];
+        start_obj[start_idx] += end_obj[end_idx];
     }
 
     debug_printf("%" IGRAPH_PRId " --> %" IGRAPH_PRId "\n", start, end);

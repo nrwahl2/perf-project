@@ -3,19 +3,24 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns
                              http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+    <key id="attr-pattern" for="node" attr.name="pattern" attr.type="string"/>
     <key id="attr-size" for="node" attr.name="size" attr.type="int"/>
     <key id="attr-weight" for="edge" attr.name="weight" attr.type="double"/>
     <graph edgedefault="directed">
         <node id="n0">
+            <data key="attr-pattern">strided</data>
             <data key="attr-size">8</data>
         </node>
         <node id="n1">
+            <data key="attr-pattern">strided</data>
             <data key="attr-size">1</data>
         </node>
         <node id="n2">
+            <data key="attr-pattern">strided</data>
             <data key="attr-size">64</data>
         </node>
         <node id="n3">
+            <data key="attr-pattern">strided</data>
             <data key="attr-size">32</data>
         </node>
         <edge source="n0" target="n1">

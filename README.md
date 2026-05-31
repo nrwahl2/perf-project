@@ -26,6 +26,8 @@ number of iterations, accessing the data objects according to this pattern.
   zero.
 * The weights of the edges originating from a given vertex sum to one.
 
+[igraph](https://igraph.org/) is used as the graph library.
+
 An input graph is read from a [GraphML](http://graphml.graphdrawing.org/) file.
 Some provided input graphs are stored in the `graphs` subdirectory. Currently,
 the input file path is hard-coded via the `INPUT_FILENAME` macro. To choose a
@@ -35,8 +37,14 @@ The `<graph>` element in the GraphML file must have `edgedefault="directed"`.
 
 We expect the following attributes in the GraphML file:
 
+* The `pattern` vertex attribute (type `string`) determines the access pattern
+  to be used within the vertex's associated data object. This must be set for
+  each vertex. Supported values:
+  - `strided`: Array elements are accessed sequentially.
+  - `random`: Array elements are accessed uniformly at random, using igraph's
+    default RNG.
 * The `size` vertex attribute (type `int`) determines the size (in chunks) of
-  each vertex's associated data object. This must be set for each vertex.
+  the vertex's associated data object. This must be set for each vertex.
   - The chunk size is currently hard-coded via the `BYTES_PER_CHUNK` macro.
 * The `weight` edge attribute (type `double`) determines the weight of each
   edge. This must be set for each edge. As mentioned previously, the weights of
@@ -45,18 +53,20 @@ We expect the following attributes in the GraphML file:
 The number of graph traversal steps is currently hard-coded via the `LOOP_ITER`
 macro.
 
-At each traversal step, we access the entire data objects for the start and end
-vertices. For example, suppose we start at vertex **A** and step to vertex
-**B**. Then we access each element of **B**'s object in order and add it to the
-corresponding element of **A**. This ensures that the entire object must be
-loaded into memory at some point during the step; no part of the access can be
-optimized away. If one object is larger than the other, then we start back at
-the first element of the smaller object when we would overflow its array bounds.
+At each traversal step, we may access the entire data objects for the start and
+end vertices. For example, suppose we start at vertex **A** and step to vertex
+**B**. We choose an element from **A** and an element from **B** according to
+the `pattern` vertex attribute, and we add the **B** element to the **A**
+element. We do this for `max(m, n)` iterations, where `m` is the number of
+elements in **A** and `n` is the number of elements in **B**. If a vertex uses
+a strided access pattern, then we're guaranteed to access every element of its
+data object at least once. Otherwise, we access `max(m, n)` random elements from
+its data object. In this way, each element has equal opportunity to be accessed,
+and it's possible that every element is accessed. Neither the compiler nor the
+prefetcher should be able to circumvent this. Thus in theory, the entire **A**
+and **B** objects should be in memory simultaneously.
 
-Currently, the elements of each object are accessed in order. An option for
-random access within an object is planned.
-
-Support for running with multiple threads and OpenMP is also planned.
+Support for running with multiple threads and OpenMP is planned.
 
 ## Dependencies
 
