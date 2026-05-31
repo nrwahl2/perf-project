@@ -29,6 +29,26 @@ vertex_size(const igraph_t *graph, igraph_int_t vid)
     return BYTES_PER_CHUNK * (size_t) VAN(graph, ATTR_SIZE, vid);
 }
 
+static uint8_t *
+init_vertex_object(const igraph_t *graph, igraph_int_t index)
+{
+    const size_t size = vertex_size(graph, index);
+    uint8_t *obj = calloc(size, sizeof(uint8_t));
+
+    if (obj == NULL) {
+        fprintf(stderr,
+                "Failed to allocate %zu bytes for vertex %" IGRAPH_PRId
+                ": %s\n", size, index, strerror(errno));
+        return NULL;
+    }
+
+    for (size_t j = 0; j < size; j++) {
+        obj[j] = igraph_rng_get_integer(igraph_rng_default(), 0, UINT8_MAX);
+    }
+
+    return obj;
+}
+
 static int
 init_vertex_objects(const igraph_t *graph, uint8_t **objects)
 {
@@ -36,19 +56,10 @@ init_vertex_objects(const igraph_t *graph, uint8_t **objects)
 
     // Initialize the data objects associated with each vertex
     for (igraph_int_t i = 0; i < vcount; i++) {
-        const size_t size = vertex_size(graph, i);
+        objects[i] = init_vertex_object(graph, i);
 
-        objects[i] = calloc(size, sizeof(uint8_t));
         if (objects[i] == NULL) {
-            fprintf(stderr,
-                    "Failed to allocate %zu bytes for vertex %" IGRAPH_PRId
-                    ": %s\n", size, i, strerror(errno));
             return -1;
-        }
-
-        for (size_t j = 0; j < size; j++) {
-            objects[i][j] = igraph_rng_get_integer(igraph_rng_default(), 0,
-                                                   UINT8_MAX);
         }
     }
 
