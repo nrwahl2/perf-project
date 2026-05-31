@@ -1,7 +1,7 @@
 #include <errno.h>      // errno
 #include <stdint.h>     // uint8_t
 #include <stdio.h>      // printf
-#include <stdlib.h>     // calloc, rand
+#include <stdlib.h>     // calloc
 #include <string.h>     // strerror
 
 #include <igraph.h>     // igraph_*, IGRAPH_*, VECTOR
@@ -47,7 +47,8 @@ init_vertex_objects(const igraph_t *graph, uint8_t **objects)
         }
 
         for (size_t j = 0; j < size; j++) {
-            objects[i][j] = rand() / UINT8_MAX;
+            objects[i][j] = igraph_rng_get_integer(igraph_rng_default(), 0,
+                                                   UINT8_MAX);
         }
     }
 
